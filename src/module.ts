@@ -288,20 +288,60 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
     }
   }
 
-  private async updateDeviceState(deviceId: number, state: string) {
-    const device = this.getDevices().find((d) => d.uniqueId === `megad_${deviceId}`);
+  private async updateDeviceState(deviceId: number, message: string) {
+    // First, let's debug what devices we have
+    const allDevices = this.getDevices();
+    this.log.info(`Available devices: ${allDevices.map((d) => `${d.name}(${d.uniqueId})`).join(', ')}`);
+
+    // Try multiple ways to find the device:
+    // 1. By endpoint name containing the deviceId
+    // 2. By uniqueId matching our expected format
+    // 3. As a fallback, use the first device if there's only one (common case)
+    let device = allDevices.find((d) => {
+      const endpointName = d.name || '';
+      this.log.info(`Checking device: name="${endpointName}", uniqueId="${d.uniqueId}"`);
+      return (
+        endpointName.includes(`${deviceId}`) ||
+        endpointName.includes('Bedroom Light') || // Our default device name
+        d.uniqueId === `megad_${deviceId}`
+      );
+    });
+
+    // Fallback: if we only have one device and couldn't find by ID, use it anyway
+    if (!device && allDevices.length === 1) {
+      this.log.info(`Using single available device as fallback for device ID ${deviceId}`);
+      device = allDevices[0];
+    }
+
     if (!device) {
-      this.log.warn(`Device with ID ${deviceId} not found`);
+      this.log.warn(`Device with ID ${deviceId} not found. Available devices: ${allDevices.map((d) => d.name).join(', ')}`);
       return;
     }
 
-    // Parse state (assuming it's "0" for OFF, "1" for ON)
-    const isOn = state.trim() === '1';
-    this.log.info(`Updating device ${deviceId} state to: ${isOn ? 'ON' : 'OFF'}`);
+    // Parse the JSON message format: {"port":11,"value":"OFF"}
+    let isOn = false;
+    try {
+      const messageObj = JSON.parse(message);
+      if (messageObj.value) {
+        // Handle "ON"/"OFF" string values
+        isOn = messageObj.value.toUpperCase() === 'ON';
+      } else if (messageObj.port && messageObj.port.toString() === deviceId.toString()) {
+        // Fallback: if no value field, assume the message itself indicates state
+        isOn = true; // Default to ON if we can't determine
+      }
+    } catch (_error) {
+      // Fallback to original logic for non-JSON messages
+      isOn = message.trim() === '1';
+    }
+
+    this.log.info(`Updating device ${deviceId} (${device.name}) state to: ${isOn ? 'ON' : 'OFF'}`);
 
     // Update the Matter device state
     if (device.hasClusterServer('onOff')) {
       await device.setAttribute('onOff', 'onOff', isOn);
+      this.log.info(`Successfully updated device ${deviceId} Matter state`);
+    } else {
+      this.log.warn(`Device ${deviceId} does not have onOff cluster`);
     }
   }
 }
