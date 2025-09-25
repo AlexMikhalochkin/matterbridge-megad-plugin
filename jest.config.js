@@ -15,6 +15,9 @@ const jestConfig = {
   testPathIgnorePatterns: ['/node_modules/', '/dist/', '/vitest/'],
   coveragePathIgnorePatterns: ['/node_modules/', '/dist/', '/vitest/'],
   maxWorkers: '100%',
+  forceExit: true,
+  detectOpenHandles: false,
+  testTimeout: 10000,
 };
 
 export default jestConfig;

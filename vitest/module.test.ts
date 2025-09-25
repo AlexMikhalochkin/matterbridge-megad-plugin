@@ -4,17 +4,22 @@ import { Matterbridge, MatterbridgeEndpoint, PlatformConfig } from 'matterbridge
 
 import { MegaDPlatform } from '../src/module.ts';
 
-// Mock MQTT to prevent actual connections during tests
+// Mock MQTT completely to prevent actual connections during tests
+const mockMqttClient = {
+  on: vi.fn(),
+  subscribe: vi.fn(),
+  publish: vi.fn(),
+  end: vi.fn((force: any, options: any, callback: any) => {
+    if (callback) callback();
+  }),
+  connected: false,
+  reconnecting: false,
+  options: {},
+};
+
 vi.mock('mqtt', () => ({
   default: {
-    connect: vi.fn(() => ({
-      on: vi.fn(),
-      subscribe: vi.fn(),
-      publish: vi.fn(),
-      end: vi.fn((force, options, callback) => {
-        if (callback) callback();
-      }),
-    })),
+    connect: vi.fn(() => mockMqttClient),
   },
 }));
 
@@ -71,18 +76,27 @@ describe('Matterbridge MegaD Plugin', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset mock client state
+    mockMqttClient.connected = false;
+    mockMqttClient.reconnecting = false;
   });
 
   afterEach(async () => {
-    // Clean up MQTT connection to prevent hanging
+    // Clean up MQTT connection to prevent hanging and reconnection attempts
     if (instance?.mqttClient) {
+      // Force disconnect without reconnection
+      instance.mqttClient.connected = false;
+      instance.mqttClient.reconnecting = false;
       await new Promise<void>((resolve) => {
-        instance.mqttClient?.end(false, {}, () => resolve());
+        instance.mqttClient?.end(true, {}, () => resolve());
       });
+      instance.mqttClient = null;
     }
   });
 
   afterAll(() => {
+    // Clear any remaining timers and restore mocks
+    vi.clearAllTimers();
     vi.restoreAllMocks();
   });
 
