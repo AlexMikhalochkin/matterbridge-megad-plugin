@@ -1,6 +1,6 @@
 import { Matterbridge, MatterbridgeDynamicPlatform, MatterbridgeEndpoint, onOffLight, PlatformConfig } from 'matterbridge';
 import { AnsiLogger, LogLevel } from 'matterbridge/logger';
-import * as mqtt from 'mqtt';
+import mqtt from 'mqtt';
 
 /**
  * Configuration interface for MegaD plugin
@@ -32,20 +32,20 @@ export const configSchema = {
           type: 'string',
           title: 'MQTT Broker URL',
           default: 'mqtt://localhost:1883',
-          description: 'MQTT broker URL (e.g., mqtt://localhost:1883)'
+          description: 'MQTT broker URL (e.g., mqtt://localhost:1883)',
         },
         username: {
           type: 'string',
           title: 'Username (optional)',
-          description: 'MQTT username if authentication is required'
+          description: 'MQTT username if authentication is required',
         },
         password: {
           type: 'string',
           title: 'Password (optional)',
-          description: 'MQTT password if authentication is required'
-        }
+          description: 'MQTT password if authentication is required',
+        },
       },
-      required: ['broker']
+      required: ['broker'],
     },
     devices: {
       type: 'array',
@@ -58,31 +58,31 @@ export const configSchema = {
             title: 'Device ID',
             description: 'MegaD device ID (e.g., 11)',
             minimum: 1,
-            maximum: 999
+            maximum: 999,
           },
           name: {
             type: 'string',
             title: 'Device Name',
-            description: 'Friendly name for the device'
+            description: 'Friendly name for the device',
           },
           room: {
             type: 'string',
             title: 'Room (optional)',
-            description: 'Room name for organization'
-          }
+            description: 'Room name for organization',
+          },
         },
-        required: ['id', 'name']
+        required: ['id', 'name'],
       },
       default: [
         {
           id: 11,
           name: 'Bedroom Light',
-          room: 'Bedroom'
-        }
-      ]
-    }
+          room: 'Bedroom',
+        },
+      ],
+    },
   },
-  required: ['mqtt']
+  required: ['mqtt'],
 };
 
 /**
@@ -101,12 +101,16 @@ export default function initializePlugin(matterbridge: Matterbridge, log: AnsiLo
 // Here we define the MegaDPlatform class, which extends the MatterbridgeDynamicPlatform.
 export class MegaDPlatform extends MatterbridgeDynamicPlatform {
   private mqttClient: mqtt.MqttClient | null = null;
-  private config!: MegaDConfig;
+
+  // Type-safe getter for our config
+  private get megaDConfig(): MegaDConfig {
+    return this.config as MegaDConfig;
+  }
 
   constructor(matterbridge: Matterbridge, log: AnsiLogger, config: MegaDConfig) {
     // Always call super(matterbridge, log, config)
     super(matterbridge, log, config);
-    
+
     // Set default configuration values
     this.config = {
       ...config,
@@ -119,9 +123,9 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
         {
           id: 11,
           name: 'Bedroom Light',
-          room: 'Bedroom'
-        }
-      ]
+          room: 'Bedroom',
+        },
+      ],
     };
 
     // Verify that Matterbridge is the correct version
@@ -132,8 +136,8 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
     }
 
     this.log.info(`Initializing MegaD Platform...`);
-    this.log.info(`MQTT Broker: ${this.config.mqtt.broker}`);
-    this.log.info(`Configured devices: ${this.config.devices.length}`);
+    this.log.info(`MQTT Broker: ${this.megaDConfig.mqtt.broker}`);
+    this.log.info(`Configured devices: ${this.megaDConfig.devices.length}`);
   }
 
   override async onStart(reason?: string) {
@@ -184,27 +188,27 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
   }
 
   private async initializeMqtt() {
-    if (!this.config.mqtt?.broker) {
+    if (!this.megaDConfig.mqtt?.broker) {
       this.log.warn('MQTT broker not configured - devices will be created but MQTT functionality will be disabled');
       return;
     }
 
-    this.log.info(`Connecting to MQTT broker: ${this.config.mqtt.broker}`);
-    
+    this.log.info(`Connecting to MQTT broker: ${this.megaDConfig.mqtt.broker}`);
+
     const options: mqtt.IClientOptions = {};
-    if (this.config.mqtt.username) {
-      options.username = this.config.mqtt.username;
-      options.password = this.config.mqtt.password;
+    if (this.megaDConfig.mqtt.username) {
+      options.username = this.megaDConfig.mqtt.username;
+      options.password = this.megaDConfig.mqtt.password;
     }
 
-    this.mqttClient = mqtt.connect(this.config.mqtt.broker, options);
+    this.mqttClient = mqtt.connect(this.megaDConfig.mqtt.broker, options);
 
     this.mqttClient.on('connect', () => {
       this.log.info('Connected to MQTT broker');
-      
+
       // Subscribe to state topics for all devices
-      if (this.config.devices) {
-        for (const deviceConfig of this.config.devices) {
+      if (this.megaDConfig.devices) {
+        for (const deviceConfig of this.megaDConfig.devices) {
           const stateTopic = `alex/${deviceConfig.id}`;
           this.mqttClient?.subscribe(stateTopic);
           this.log.info(`Subscribed to ${stateTopic}`);
@@ -216,13 +220,13 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
       this.log.error(`MQTT error: ${error.message}`);
     });
 
-    this.mqttClient.on('message', (topic, message) => {
-      this.handleMqttMessage(topic, message.toString());
+    this.mqttClient.on('message', async (topic, message) => {
+      await this.handleMqttMessage(topic, message.toString());
     });
   }
 
   private async createDevices() {
-    if (!this.config.devices || this.config.devices.length === 0) {
+    if (!this.megaDConfig.devices || this.megaDConfig.devices.length === 0) {
       this.log.info('No devices configured, creating default bedroom light with ID 11');
       // Create a default bedroom light for POC/testing
       await this.createMegaDLight(11, 'Bedroom Light');
@@ -230,7 +234,7 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
     }
 
     // Create configured devices
-    for (const deviceConfig of this.config.devices) {
+    for (const deviceConfig of this.megaDConfig.devices) {
       this.log.info(`Creating configured device: ${deviceConfig.name} (ID: ${deviceConfig.id})`);
       await this.createMegaDLight(deviceConfig.id, deviceConfig.name);
     }
@@ -245,15 +249,15 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
         'MegaD',
         `MegaD Light ${deviceId}`,
         deviceId,
-        '1.0.0'
+        '1.0.0',
       )
       .createDefaultPowerSourceWiredClusterServer()
       .addRequiredClusterServers()
-      .addCommandHandler('on', async (data) => {
+      .addCommandHandler('on', async (_data) => {
         this.log.info(`Turning ON device ${deviceId} (${deviceName})`);
         await this.sendMqttCommand(deviceId, 1); // 1 = ON
       })
-      .addCommandHandler('off', async (data) => {
+      .addCommandHandler('off', async (_data) => {
         this.log.info(`Turning OFF device ${deviceId} (${deviceName})`);
         await this.sendMqttCommand(deviceId, 0); // 0 = OFF
       });
@@ -270,26 +274,26 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
 
     const commandTopic = `alex/cmd`;
     const command = `${deviceId}:${state}`;
-    
+
     this.log.info(`Publishing to ${commandTopic}: ${command}`);
     this.mqttClient.publish(commandTopic, command);
   }
 
-  private handleMqttMessage(topic: string, message: string) {
+  private async handleMqttMessage(topic: string, message: string) {
     this.log.info(`MQTT message received - Topic: ${topic}, Message: ${message}`);
-    
+
     // Parse topic to get device ID (alex/<deviceId>)
     const topicParts = topic.split('/');
     if (topicParts.length === 2 && topicParts[0] === 'alex') {
       const deviceId = parseInt(topicParts[1]);
       if (!isNaN(deviceId)) {
-        this.updateDeviceState(deviceId, message);
+        await this.updateDeviceState(deviceId, message);
       }
     }
   }
 
-  private updateDeviceState(deviceId: number, state: string) {
-    const device = this.getDevices().find(d => d.uniqueId === `megad_${deviceId}`);
+  private async updateDeviceState(deviceId: number, state: string) {
+    const device = this.getDevices().find((d) => d.uniqueId === `megad_${deviceId}`);
     if (!device) {
       this.log.warn(`Device with ID ${deviceId} not found`);
       return;
@@ -298,10 +302,10 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
     // Parse state (assuming it's "0" for OFF, "1" for ON)
     const isOn = state.trim() === '1';
     this.log.info(`Updating device ${deviceId} state to: ${isOn ? 'ON' : 'OFF'}`);
-    
+
     // Update the Matter device state
     if (device.hasClusterServer('onOff')) {
-      device.setAttributeLocal('onOff', 'onOff', isOn);
+      await device.setAttribute('onOff', 'onOff', isOn);
     }
   }
 }

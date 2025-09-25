@@ -2,7 +2,21 @@ import { vi, describe, beforeEach, afterAll } from 'vitest';
 import { AnsiLogger, LogLevel } from 'matterbridge/logger';
 import { Matterbridge, MatterbridgeEndpoint, PlatformConfig } from 'matterbridge';
 
-import { TemplatePlatform } from '../src/module.ts';
+import { MegaDPlatform } from '../src/module.ts';
+
+// Mock MQTT to prevent actual connections during tests
+vi.mock('mqtt', () => ({
+  default: {
+    connect: vi.fn(() => ({
+      on: vi.fn(),
+      subscribe: vi.fn(),
+      publish: vi.fn(),
+      end: vi.fn((force, options, callback) => {
+        if (callback) callback();
+      }),
+    })),
+  },
+}));
 
 const mockLog = {
   fatal: vi.fn((message: string, ...parameters: any[]) => {}),
@@ -31,20 +45,41 @@ const mockMatterbridge = {
 } as unknown as Matterbridge;
 
 const mockConfig = {
-  name: 'matterbridge-plugin-template',
+  name: 'matterbridge-megad-plugin',
   type: 'DynamicPlatform',
   version: '1.0.0',
   debug: false,
   unregisterOnShutdown: false,
+  mqtt: {
+    broker: 'mqtt://localhost:1883',
+    username: undefined,
+    password: undefined,
+  },
+  devices: [
+    {
+      id: 11,
+      name: 'Test Light',
+      room: 'Test Room',
+    },
+  ],
 } as PlatformConfig;
 
 const loggerLogSpy = vi.spyOn(AnsiLogger.prototype, 'log').mockImplementation((level: string, message: string, ...parameters: any[]) => {});
 
-describe('Matterbridge Plugin Template', () => {
-  let instance: TemplatePlatform;
+describe('Matterbridge MegaD Plugin', () => {
+  let instance: MegaDPlatform;
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    // Clean up MQTT connection to prevent hanging
+    if (instance?.mqttClient) {
+      await new Promise<void>((resolve) => {
+        instance.mqttClient?.end(false, {}, () => resolve());
+      });
+    }
   });
 
   afterAll(() => {
@@ -53,20 +88,25 @@ describe('Matterbridge Plugin Template', () => {
 
   it('should throw an error if matterbridge is not the required version', async () => {
     mockMatterbridge.matterbridgeVersion = '2.0.0'; // Simulate an older version
-    expect(() => new TemplatePlatform(mockMatterbridge, mockLog, mockConfig)).toThrow(
+    expect(() => new MegaDPlatform(mockMatterbridge, mockLog, mockConfig)).toThrow(
       'This plugin requires Matterbridge version >= "3.0.7". Please update Matterbridge from 2.0.0 to the latest version in the frontend.',
     );
     mockMatterbridge.matterbridgeVersion = '3.0.7';
   });
 
   it('should create an instance of the platform', async () => {
-    instance = (await import('../src/module.ts')).default(mockMatterbridge, mockLog, mockConfig) as TemplatePlatform;
-    expect(instance).toBeInstanceOf(TemplatePlatform);
+    instance = (await import('../src/module.ts')).default(mockMatterbridge, mockLog, mockConfig) as MegaDPlatform;
+    expect(instance).toBeInstanceOf(MegaDPlatform);
     expect(instance.matterbridge).toBe(mockMatterbridge);
     expect(instance.log).toBe(mockLog);
-    expect(instance.config).toBe(mockConfig);
+    expect(instance.config).toEqual(
+      expect.objectContaining({
+        name: 'matterbridge-megad-plugin',
+        type: 'DynamicPlatform',
+      }),
+    );
     expect(instance.matterbridge.matterbridgeVersion).toBe('3.0.7');
-    expect(mockLog.info).toHaveBeenCalledWith('Initializing Platform...');
+    expect(mockLog.info).toHaveBeenCalledWith('Initializing MegaD Platform...');
   });
 
   it('should start', async () => {
@@ -83,8 +123,8 @@ describe('Matterbridge Plugin Template', () => {
         await device.executeCommandHandler('off');
       }
     }
-    expect(mockLog.info).toHaveBeenCalledWith('Command on called on cluster undefined'); // Is undefined here cause the endpoint in not active
-    expect(mockLog.info).toHaveBeenCalledWith('Command off called on cluster undefined'); // Is undefined here cause the endpoint in not active
+    expect(mockLog.info).toHaveBeenCalledWith(expect.stringContaining('Turning ON device'));
+    expect(mockLog.info).toHaveBeenCalledWith(expect.stringContaining('Turning OFF device'));
   });
 
   it('should configure', async () => {

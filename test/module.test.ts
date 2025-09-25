@@ -4,6 +4,20 @@ import { Matterbridge, MatterbridgeEndpoint, PlatformConfig } from 'matterbridge
 
 import { MegaDPlatform } from '../src/module.ts';
 
+// Mock MQTT to prevent actual connections during tests
+jest.unstable_mockModule('mqtt', () => ({
+  default: {
+    connect: jest.fn(() => ({
+      on: jest.fn(),
+      subscribe: jest.fn(),
+      publish: jest.fn(),
+      end: jest.fn((force: any, options: any, callback: any) => {
+        if (callback) callback();
+      }),
+    })),
+  },
+}));
+
 const mockLog = {
   fatal: jest.fn((message: string, ...parameters: any[]) => {}),
   error: jest.fn((message: string, ...parameters: any[]) => {}),
@@ -56,6 +70,15 @@ describe('Matterbridge MegaD Plugin', () => {
     jest.clearAllMocks();
   });
 
+  afterEach(async () => {
+    // Clean up MQTT connection to prevent hanging
+    if (instance?.mqttClient) {
+      await new Promise<void>((resolve) => {
+        instance.mqttClient?.end(false, {}, () => resolve());
+      });
+    }
+  });
+
   afterAll(() => {
     jest.restoreAllMocks();
   });
@@ -73,7 +96,12 @@ describe('Matterbridge MegaD Plugin', () => {
     expect(instance).toBeInstanceOf(MegaDPlatform);
     expect(instance.matterbridge).toBe(mockMatterbridge);
     expect(instance.log).toBe(mockLog);
-    expect(instance.config).toBe(mockConfig);
+    expect(instance.config).toEqual(
+      expect.objectContaining({
+        name: 'matterbridge-megad-plugin',
+        type: 'DynamicPlatform',
+      }),
+    );
     expect(instance.matterbridge.matterbridgeVersion).toBe('3.0.7');
     expect(mockLog.info).toHaveBeenCalledWith('Initializing MegaD Platform...');
   });
@@ -92,8 +120,8 @@ describe('Matterbridge MegaD Plugin', () => {
         await device.executeCommandHandler('off');
       }
     }
-    expect(mockLog.info).toHaveBeenCalledWith('Command on called on cluster undefined'); // Is undefined here cause the endpoint in not active
-    expect(mockLog.info).toHaveBeenCalledWith('Command off called on cluster undefined'); // Is undefined here cause the endpoint in not active
+    expect(mockLog.info).toHaveBeenCalledWith(expect.stringContaining('Turning ON device'));
+    expect(mockLog.info).toHaveBeenCalledWith(expect.stringContaining('Turning OFF device'));
   });
 
   it('should configure', async () => {
@@ -111,11 +139,11 @@ describe('Matterbridge MegaD Plugin', () => {
     await instance.onShutdown('Jest');
     expect(mockLog.info).toHaveBeenCalledWith('onShutdown called with reason: Jest');
 
-    // Mock the unregisterOnShutdown behavior
-    mockConfig.unregisterOnShutdown = true;
+    // Test unregisterOnShutdown behavior
+    instance.config.unregisterOnShutdown = true;
     await instance.onShutdown();
     expect(mockLog.info).toHaveBeenCalledWith('onShutdown called with reason: none');
     expect(mockMatterbridge.removeAllBridgedEndpoints).toHaveBeenCalled();
-    mockConfig.unregisterOnShutdown = false;
+    instance.config.unregisterOnShutdown = false;
   });
 });
