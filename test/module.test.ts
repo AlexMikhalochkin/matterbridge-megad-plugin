@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { AnsiLogger, LogLevel } from 'matterbridge/logger';
 import { Matterbridge, MatterbridgeEndpoint, PlatformConfig } from 'matterbridge';
 
-import { TemplatePlatform } from '../src/module.ts';
+import { MegaDPlatform } from '../src/module.ts';
 
 const mockLog = {
   fatal: jest.fn((message: string, ...parameters: any[]) => {}),
@@ -31,17 +31,26 @@ const mockMatterbridge = {
 } as unknown as Matterbridge;
 
 const mockConfig = {
-  name: 'matterbridge-plugin-template',
+  name: 'matterbridge-megad-plugin',
   type: 'DynamicPlatform',
   version: '1.0.0',
   debug: false,
   unregisterOnShutdown: false,
-} as PlatformConfig;
+  mqtt: {
+    broker: 'mqtt://localhost:1883',
+  },
+  devices: [
+    {
+      id: 11,
+      name: 'Bedroom Light',
+    },
+  ],
+} as any;
 
 const loggerLogSpy = jest.spyOn(AnsiLogger.prototype, 'log').mockImplementation((level: string, message: string, ...parameters: any[]) => {});
 
-describe('Matterbridge Plugin Template', () => {
-  let instance: TemplatePlatform;
+describe('Matterbridge MegaD Plugin', () => {
+  let instance: MegaDPlatform;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -53,20 +62,20 @@ describe('Matterbridge Plugin Template', () => {
 
   it('should throw an error if matterbridge is not the required version', async () => {
     mockMatterbridge.matterbridgeVersion = '2.0.0'; // Simulate an older version
-    expect(() => new TemplatePlatform(mockMatterbridge, mockLog, mockConfig)).toThrow(
+    expect(() => new MegaDPlatform(mockMatterbridge, mockLog, mockConfig)).toThrow(
       'This plugin requires Matterbridge version >= "3.0.7". Please update Matterbridge from 2.0.0 to the latest version in the frontend.',
     );
     mockMatterbridge.matterbridgeVersion = '3.0.7';
   });
 
   it('should create an instance of the platform', async () => {
-    instance = (await import('../src/module.ts')).default(mockMatterbridge, mockLog, mockConfig) as TemplatePlatform;
-    expect(instance).toBeInstanceOf(TemplatePlatform);
+    instance = (await import('../src/module.ts')).default(mockMatterbridge, mockLog, mockConfig) as MegaDPlatform;
+    expect(instance).toBeInstanceOf(MegaDPlatform);
     expect(instance.matterbridge).toBe(mockMatterbridge);
     expect(instance.log).toBe(mockLog);
     expect(instance.config).toBe(mockConfig);
     expect(instance.matterbridge.matterbridgeVersion).toBe('3.0.7');
-    expect(mockLog.info).toHaveBeenCalledWith('Initializing Platform...');
+    expect(mockLog.info).toHaveBeenCalledWith('Initializing MegaD Platform...');
   });
 
   it('should start', async () => {
