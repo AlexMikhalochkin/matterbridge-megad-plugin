@@ -2,7 +2,26 @@ import { jest } from '@jest/globals';
 import { AnsiLogger, LogLevel } from 'matterbridge/logger';
 import { Matterbridge, MatterbridgeEndpoint, PlatformConfig } from 'matterbridge';
 
-import { TemplatePlatform } from '../src/module.ts';
+import { MegaDPlatform } from '../src/module.ts';
+
+// Mock MQTT completely to prevent actual connections during tests
+const mockMqttClient = {
+  on: jest.fn(),
+  subscribe: jest.fn(),
+  publish: jest.fn(),
+  end: jest.fn((force: any, options: any, callback: any) => {
+    if (callback) callback();
+  }),
+  connected: false,
+  reconnecting: false,
+  options: {},
+};
+
+jest.unstable_mockModule('mqtt', () => ({
+  default: {
+    connect: jest.fn(() => mockMqttClient),
+  },
+}));
 
 const mockLog = {
   fatal: jest.fn((message: string, ...parameters: any[]) => {}),
@@ -31,42 +50,74 @@ const mockMatterbridge = {
 } as unknown as Matterbridge;
 
 const mockConfig = {
-  name: 'matterbridge-plugin-template',
+  name: 'matterbridge-megad-plugin',
   type: 'DynamicPlatform',
   version: '1.0.0',
   debug: false,
   unregisterOnShutdown: false,
-} as PlatformConfig;
+  mqtt: {
+    broker: 'mqtt://localhost:1883',
+  },
+  devices: [
+    {
+      id: 11,
+      name: 'Bedroom Light',
+    },
+  ],
+} as any;
 
 const loggerLogSpy = jest.spyOn(AnsiLogger.prototype, 'log').mockImplementation((level: string, message: string, ...parameters: any[]) => {});
 
-describe('Matterbridge Plugin Template', () => {
-  let instance: TemplatePlatform;
+describe('Matterbridge MegaD Plugin', () => {
+  let instance: MegaDPlatform;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Reset mock client state
+    mockMqttClient.connected = false;
+    mockMqttClient.reconnecting = false;
+  });
+
+  afterEach(async () => {
+    // Clean up MQTT connection to prevent hanging and reconnection attempts
+    if (instance?.mqttClient) {
+      // Force disconnect without reconnection
+      instance.mqttClient.connected = false;
+      instance.mqttClient.reconnecting = false;
+      await new Promise<void>((resolve) => {
+        instance.mqttClient?.end(true, {}, () => resolve());
+      });
+      instance.mqttClient = null;
+    }
   });
 
   afterAll(() => {
+    // Clear any remaining timers and restore mocks
+    jest.clearAllTimers();
     jest.restoreAllMocks();
   });
 
   it('should throw an error if matterbridge is not the required version', async () => {
     mockMatterbridge.matterbridgeVersion = '2.0.0'; // Simulate an older version
-    expect(() => new TemplatePlatform(mockMatterbridge, mockLog, mockConfig)).toThrow(
+    expect(() => new MegaDPlatform(mockMatterbridge, mockLog, mockConfig)).toThrow(
       'This plugin requires Matterbridge version >= "3.0.7". Please update Matterbridge from 2.0.0 to the latest version in the frontend.',
     );
     mockMatterbridge.matterbridgeVersion = '3.0.7';
   });
 
   it('should create an instance of the platform', async () => {
-    instance = (await import('../src/module.ts')).default(mockMatterbridge, mockLog, mockConfig) as TemplatePlatform;
-    expect(instance).toBeInstanceOf(TemplatePlatform);
+    instance = (await import('../src/module.ts')).default(mockMatterbridge, mockLog, mockConfig) as MegaDPlatform;
+    expect(instance).toBeInstanceOf(MegaDPlatform);
     expect(instance.matterbridge).toBe(mockMatterbridge);
     expect(instance.log).toBe(mockLog);
-    expect(instance.config).toBe(mockConfig);
+    expect(instance.config).toEqual(
+      expect.objectContaining({
+        name: 'matterbridge-megad-plugin',
+        type: 'DynamicPlatform',
+      }),
+    );
     expect(instance.matterbridge.matterbridgeVersion).toBe('3.0.7');
-    expect(mockLog.info).toHaveBeenCalledWith('Initializing Platform...');
+    expect(mockLog.info).toHaveBeenCalledWith('Initializing MegaD Platform...');
   });
 
   it('should start', async () => {
@@ -83,8 +134,8 @@ describe('Matterbridge Plugin Template', () => {
         await device.executeCommandHandler('off');
       }
     }
-    expect(mockLog.info).toHaveBeenCalledWith('Command on called on cluster undefined'); // Is undefined here cause the endpoint in not active
-    expect(mockLog.info).toHaveBeenCalledWith('Command off called on cluster undefined'); // Is undefined here cause the endpoint in not active
+    expect(mockLog.info).toHaveBeenCalledWith(expect.stringContaining('Turning ON device'));
+    expect(mockLog.info).toHaveBeenCalledWith(expect.stringContaining('Turning OFF device'));
   });
 
   it('should configure', async () => {
@@ -102,11 +153,11 @@ describe('Matterbridge Plugin Template', () => {
     await instance.onShutdown('Jest');
     expect(mockLog.info).toHaveBeenCalledWith('onShutdown called with reason: Jest');
 
-    // Mock the unregisterOnShutdown behavior
-    mockConfig.unregisterOnShutdown = true;
+    // Test unregisterOnShutdown behavior
+    instance.config.unregisterOnShutdown = true;
     await instance.onShutdown();
     expect(mockLog.info).toHaveBeenCalledWith('onShutdown called with reason: none');
     expect(mockMatterbridge.removeAllBridgedEndpoints).toHaveBeenCalled();
-    mockConfig.unregisterOnShutdown = false;
+    instance.config.unregisterOnShutdown = false;
   });
 });
