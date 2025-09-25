@@ -101,18 +101,14 @@ export default function initializePlugin(matterbridge: Matterbridge, log: AnsiLo
 // Here we define the MegaDPlatform class, which extends the MatterbridgeDynamicPlatform.
 export class MegaDPlatform extends MatterbridgeDynamicPlatform {
   private mqttClient: mqtt.MqttClient | null = null;
-
-  // Type-safe getter for our config
-  private get megaDConfig(): MegaDConfig {
-    return this.config as MegaDConfig;
-  }
+  private megaDConfig: MegaDConfig;
 
   constructor(matterbridge: Matterbridge, log: AnsiLogger, config: MegaDConfig) {
     // Always call super(matterbridge, log, config)
     super(matterbridge, log, config);
 
-    // Set default configuration values
-    this.config = {
+    // Store our own configuration separately to avoid conflicts with parent class
+    this.megaDConfig = {
       ...config,
       mqtt: {
         broker: config.mqtt?.broker || 'mqtt://localhost:1883',
