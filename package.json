@@ -11,6 +11,11 @@
   "engines": {
     "node": ">=18.0.0 <19.0.0 || >=20.0.0 <21.0.0 || >=22.0.0 <23.0.0 || >=24.0.0 <25.0.0"
   },
+  "files": [
+    "dist/",
+    "matterbridge-megad-plugin.schema.json",
+    "matterbridge-megad-plugin.config.json"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/amikhalachkin/matterbridge-megad-plugin.git"
