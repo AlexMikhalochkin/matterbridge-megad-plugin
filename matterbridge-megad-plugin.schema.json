@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "title": "Plugin Name",
+      "default": "MegaD Plugin",
+      "readOnly": true
+    },
+    "mqtt": {
+      "type": "object",
+      "title": "MQTT Configuration",
+      "properties": {
+        "broker": {
+          "type": "string",
+          "title": "Broker URL",
+          "default": "mqtt://localhost:1883",
+          "description": "MQTT broker URL (e.g., mqtt://localhost:1883)",
+          "pattern": "^mqtt://.*"
+        },
+        "username": {
+          "type": "string",
+          "title": "Username",
+          "description": "MQTT username (leave empty if no authentication required)"
+        },
+        "password": {
+          "type": "string",
+          "title": "Password",
+          "description": "MQTT password (leave empty if no authentication required)",
+          "format": "password"
+        }
+      },
+      "required": ["broker"]
+    },
+    "devices": {
+      "type": "array",
+      "title": "MegaD Devices",
+      "description": "List of MegaD devices to control",
+      "items": {
+        "type": "object",
+        "title": "Device",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Device Name",
+            "description": "Friendly name for the device (e.g., \"Living Room Light\")"
+          },
+          "port": {
+            "type": "integer",
+            "title": "Device Port",
+            "description": "MegaD port number (1-999)",
+            "minimum": 1,
+            "maximum": 999
+          },
+          "room": {
+            "type": "string",
+            "title": "Room",
+            "description": "Room where the device is located (optional)"
+          }
+        },
+        "required": ["name", "port"]
+      },
+      "minItems": 1,
+      "default": []
+    }
+  },
+  "required": ["mqtt", "devices"]
+}

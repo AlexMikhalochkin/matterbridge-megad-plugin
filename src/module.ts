@@ -12,8 +12,8 @@ interface MegaDConfig extends PlatformConfig {
     password?: string;
   };
   devices: Array<{
-    id: number;
     name: string;
+    port: number;
     room?: string;
   }>;
 }
@@ -24,25 +24,33 @@ interface MegaDConfig extends PlatformConfig {
 export const configSchema = {
   type: 'object',
   properties: {
+    name: {
+      type: 'string',
+      title: 'Plugin Name',
+      default: 'MegaD Plugin',
+      readOnly: true,
+    },
     mqtt: {
       type: 'object',
       title: 'MQTT Configuration',
       properties: {
         broker: {
           type: 'string',
-          title: 'MQTT Broker URL',
+          title: 'Broker URL',
           default: 'mqtt://localhost:1883',
           description: 'MQTT broker URL (e.g., mqtt://localhost:1883)',
+          pattern: '^mqtt://.*',
         },
         username: {
           type: 'string',
-          title: 'Username (optional)',
-          description: 'MQTT username if authentication is required',
+          title: 'Username',
+          description: 'MQTT username (leave empty if no authentication required)',
         },
         password: {
           type: 'string',
-          title: 'Password (optional)',
-          description: 'MQTT password if authentication is required',
+          title: 'Password',
+          description: 'MQTT password (leave empty if no authentication required)',
+          format: 'password',
         },
       },
       required: ['broker'],
@@ -50,39 +58,36 @@ export const configSchema = {
     devices: {
       type: 'array',
       title: 'MegaD Devices',
+      description: 'List of MegaD devices to control',
       items: {
         type: 'object',
+        title: 'Device',
         properties: {
-          id: {
-            type: 'number',
-            title: 'Device ID',
-            description: 'MegaD device ID (e.g., 11)',
-            minimum: 1,
-            maximum: 999,
-          },
           name: {
             type: 'string',
             title: 'Device Name',
-            description: 'Friendly name for the device',
+            description: 'Friendly name for the device (e.g., "Living Room Light")',
+          },
+          port: {
+            type: 'integer',
+            title: 'Device Port',
+            description: 'MegaD port number (1-999)',
+            minimum: 1,
+            maximum: 999,
           },
           room: {
             type: 'string',
-            title: 'Room (optional)',
-            description: 'Room name for organization',
+            title: 'Room',
+            description: 'Room where the device is located (optional)',
           },
         },
-        required: ['id', 'name'],
+        required: ['name', 'port'],
       },
-      default: [
-        {
-          id: 11,
-          name: 'Bedroom Light',
-          room: 'Bedroom',
-        },
-      ],
+      minItems: 1,
+      default: [],
     },
   },
-  required: ['mqtt'],
+  required: ['mqtt', 'devices'],
 };
 
 /**
@@ -97,6 +102,12 @@ export const configSchema = {
 export default function initializePlugin(matterbridge: Matterbridge, log: AnsiLogger, config: MegaDConfig): MegaDPlatform {
   return new MegaDPlatform(matterbridge, log, config);
 }
+
+// Attach the configuration schema to the default export function
+// This is how Matterbridge discovers the schema
+initializePlugin.configSchema = configSchema;
+
+// Schema is already exported above, no need to re-export
 
 // Here we define the MegaDPlatform class, which extends the MatterbridgeDynamicPlatform.
 export class MegaDPlatform extends MatterbridgeDynamicPlatform {
@@ -115,14 +126,11 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
         username: config.mqtt?.username,
         password: config.mqtt?.password,
       },
-      devices: config.devices || [
-        {
-          id: 11,
-          name: 'Bedroom Light',
-          room: 'Bedroom',
-        },
-      ],
+      devices: config.devices || [],
     };
+
+    // Attach schema to the platform instance for discovery
+    (this as unknown as { configSchema: typeof configSchema }).configSchema = configSchema;
 
     // Verify that Matterbridge is the correct version
     if (this.verifyMatterbridgeVersion === undefined || typeof this.verifyMatterbridgeVersion !== 'function' || !this.verifyMatterbridgeVersion('3.0.7')) {
@@ -134,6 +142,9 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
     this.log.info(`Initializing MegaD Platform...`);
     this.log.info(`MQTT Broker: ${this.megaDConfig.mqtt.broker}`);
     this.log.info(`Configured devices: ${this.megaDConfig.devices.length}`);
+
+    // Log the configuration schema availability for debugging
+    this.log.info(`Configuration schema available: ${typeof this.getConfigSchema === 'function'}`);
   }
 
   override async onStart(reason?: string) {
@@ -203,12 +214,14 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
       this.log.info('Connected to MQTT broker');
 
       // Subscribe to state topics for all devices
-      if (this.megaDConfig.devices) {
+      if (this.megaDConfig.devices && this.megaDConfig.devices.length > 0) {
         for (const deviceConfig of this.megaDConfig.devices) {
-          const stateTopic = `alex/${deviceConfig.id}`;
+          const stateTopic = `alex/${deviceConfig.port}`;
           this.mqttClient?.subscribe(stateTopic);
           this.log.info(`Subscribed to ${stateTopic}`);
         }
+      } else {
+        this.log.warn('No devices configured for MQTT subscription');
       }
     });
 
@@ -223,16 +236,14 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
 
   private async createDevices() {
     if (!this.megaDConfig.devices || this.megaDConfig.devices.length === 0) {
-      this.log.info('No devices configured, creating default bedroom light with ID 11');
-      // Create a default bedroom light for POC/testing
-      await this.createMegaDLight(11, 'Bedroom Light');
+      this.log.warn('No devices configured in settings. Please configure devices in the Matterbridge UI.');
       return;
     }
 
     // Create configured devices
     for (const deviceConfig of this.megaDConfig.devices) {
-      this.log.info(`Creating configured device: ${deviceConfig.name} (ID: ${deviceConfig.id})`);
-      await this.createMegaDLight(deviceConfig.id, deviceConfig.name);
+      this.log.info(`Creating configured device: ${deviceConfig.name} (Port: ${deviceConfig.port})`);
+      await this.createMegaDLight(deviceConfig.port, deviceConfig.name);
     }
   }
 
@@ -293,18 +304,21 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
     const allDevices = this.getDevices();
     this.log.info(`Available devices: ${allDevices.map((d) => `${d.name}(${d.uniqueId})`).join(', ')}`);
 
+    // Find the device by matching the port number with our configured devices
+    const configuredDevice = this.megaDConfig.devices.find((d) => d.port === deviceId);
+    if (!configuredDevice) {
+      this.log.warn(`Device with port ${deviceId} not found in configuration`);
+      return;
+    }
+
     // Try multiple ways to find the device:
-    // 1. By endpoint name containing the deviceId
-    // 2. By uniqueId matching our expected format
+    // 1. By uniqueId matching our expected format
+    // 2. By endpoint name matching the configured device name
     // 3. As a fallback, use the first device if there's only one (common case)
     let device = allDevices.find((d) => {
       const endpointName = d.name || '';
       this.log.info(`Checking device: name="${endpointName}", uniqueId="${d.uniqueId}"`);
-      return (
-        endpointName.includes(`${deviceId}`) ||
-        endpointName.includes('Bedroom Light') || // Our default device name
-        d.uniqueId === `megad_${deviceId}`
-      );
+      return d.uniqueId === `megad_${deviceId}` || endpointName === configuredDevice.name || endpointName.includes(`${deviceId}`);
     });
 
     // Fallback: if we only have one device and couldn't find by ID, use it anyway
@@ -343,5 +357,26 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
     } else {
       this.log.warn(`Device ${deviceId} does not have onOff cluster`);
     }
+  }
+
+  /**
+   * Get configuration schema for Matterbridge UI
+   * This method is called by Matterbridge to get the configuration schema
+   *
+   * @returns {object} The configuration schema object
+   */
+  getConfigSchema() {
+    this.log.info('getConfigSchema() called');
+    return configSchema;
+  }
+
+  /**
+   * Static method to get configuration schema
+   * Some Matterbridge versions might expect this
+   *
+   * @returns {object} The configuration schema object
+   */
+  static getConfigSchema() {
+    return configSchema;
   }
 }
