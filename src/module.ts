@@ -192,7 +192,9 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
     await super.onShutdown(reason);
 
     this.log.info(`onShutdown called with reason: ${reason ?? 'none'}`);
-    if (this.config.unregisterOnShutdown === true) await this.unregisterAllDevices();
+    if (this.config.unregisterOnShutdown === true) {
+      await this.matterbridge.removeAllBridgedEndpoints(this.config.name);
+    }
   }
 
   private async initializeMqtt() {
@@ -271,10 +273,9 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
       });
 
     await this.registerDevice(light);
-    
+
     // Store the device in our port mapping for easy lookup
     this.devicePortMap.set(deviceId, light);
-    
     this.log.info(`Registered MegaD light: ${deviceName} (ID: ${deviceId})`);
   }
 
