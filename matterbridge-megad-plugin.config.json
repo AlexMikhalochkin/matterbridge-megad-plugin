@@ -1,0 +1,10 @@
+{
+  "name": "matterbridge-megad-plugin",
+  "type": "DynamicPlatform",
+  "mqtt": {
+    "broker": "mqtt://localhost:1883",
+    "username": "",
+    "password": ""
+  },
+  "devices": []
+}
