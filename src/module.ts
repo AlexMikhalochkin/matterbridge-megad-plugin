@@ -192,9 +192,6 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
     await super.onShutdown(reason);
 
     this.log.info(`onShutdown called with reason: ${reason ?? 'none'}`);
-    if (this.config.unregisterOnShutdown === true) {
-      await this.matterbridge.removeAllBridgedEndpoints(this.config.name);
-    }
   }
 
   private async initializeMqtt() {
@@ -251,7 +248,7 @@ export class MegaDPlatform extends MatterbridgeDynamicPlatform {
   }
 
   private async createMegaDLight(deviceId: number, deviceName: string) {
-    const light = new MatterbridgeEndpoint(onOffLight, { uniqueStorageKey: `megad_${deviceId}` })
+    const light = new MatterbridgeEndpoint(onOffLight)
       .createDefaultBridgedDeviceBasicInformationClusterServer(
         deviceName,
         `MEGAD${deviceId}`,
